@@ -24,7 +24,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '24'
+          java-version: '21'
           cache: maven
 
       - name: Setup Chrome
@@ -33,8 +33,11 @@ jobs:
           chrome-version: stable
 
       - name: Build and run PageSpeed automation
-        run: mvn -q compile exec:java -Dexec.mainClass="Speed.sitepeed"
+        run: mvn -B compile exec:java -Dexec.mainClass="Speed.sitepeed"
         timeout-minutes: 45
+        env:
+          PAGESPEED_CSV_PATH: pagespeed_results.csv
+          CI: true
 
       - name: Upload CSV artifact
         uses: actions/upload-artifact@v4
