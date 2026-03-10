@@ -1,20 +1,32 @@
-# Page Speed automation: runs on schedule and sends CSV by email
-# Add repo secrets: SMTP_USER, SMTP_PASSWORD, EMAIL_TO (and optionally SMTP_SERVER, SMTP_PORT)
+# PageSpeed Report – scheduled + manual, emails CSV
+# Secrets: SMTP_USER, SMTP_PASSWORD, EMAIL_TO
+# Variables (optional): SMTP_SERVER, SMTP_PORT
 
 name: PageSpeed Report
 
 on:
   schedule:
-    # Run every Monday at 6:00 AM UTC (adjust cron as needed)
-    - cron: '0 6 * * 1'
-  workflow_dispatch:  # Allow "Run workflow" from GitHub Actions tab
+    - cron: '0 6 * * 1'   # Every Monday 06:00 UTC
+  workflow_dispatch:       # Run manually from Actions tab
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pagespeed.yml'
+      - 'src/**'
+      - 'pom.xml'
+
+concurrency:
+  group: pagespeed
+  cancel-in-progress: true
 
 env:
   PAGESPEED_CSV_PATH: pagespeed_results.csv
-  CI: true   # Tells the Java app to run Chrome headless
+  CI: true
+  JAVA_VERSION: '21'
 
 jobs:
-  pagespeed:
+  build:
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -23,8 +35,32 @@ jobs:
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '21'
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Build with Maven
+        run: mvn -B compile -q
+        id: build
+
+    outputs:
+      built: ${{ steps.build.outcome == 'success' }}
+
+  pagespeed:
+    name: Run PageSpeed
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
           cache: maven
 
       - name: Setup Chrome
@@ -32,30 +68,56 @@ jobs:
         with:
           chrome-version: stable
 
-      - name: Build and run PageSpeed automation
-        run: mvn -B compile exec:java -Dexec.mainClass="Speed.sitepeed"
-        timeout-minutes: 45
+      - name: Run PageSpeed automation
+        id: run
+        run: mvn -B compile exec:java -Dexec.mainClass="Speed.sitepeed" -q
         env:
-          PAGESPEED_CSV_PATH: pagespeed_results.csv
-          CI: true
+          PAGESPEED_CSV_PATH: ${{ env.PAGESPEED_CSV_PATH }}
+          CI: ${{ env.CI }}
+
+      - name: Check CSV exists
+        id: csv
+        run: |
+          if [ -f "${{ env.PAGESPEED_CSV_PATH }}" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "lines=$(wc -l < "${{ env.PAGESPEED_CSV_PATH }}")" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload CSV artifact
+        if: steps.csv.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: pagespeed-results
+          name: pagespeed-results-${{ github.run_number }}
           path: ${{ env.PAGESPEED_CSV_PATH }}
+          retention-days: 30
 
       - name: Send CSV by email
-        if: success() && secrets.EMAIL_TO != ''
+        if: success() && steps.csv.outputs.exists == 'true' && secrets.EMAIL_TO != ''
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ vars.SMTP_SERVER || 'smtp.gmail.com' }}
           server_port: ${{ vars.SMTP_PORT || '587' }}
           username: ${{ secrets.SMTP_USER }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "PageSpeed Report - ${{ github.run_id }}"
+          subject: "PageSpeed Report #${{ github.run_number }} – ${{ github.run_id }}"
           to: ${{ secrets.EMAIL_TO }}
           from: ${{ secrets.SMTP_USER }}
-          body: "PageSpeed automation completed. CSV attached."
+          body: |
+            PageSpeed automation finished successfully.
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Rows in CSV: ${{ steps.csv.outputs.lines }}
           attachments: ${{ env.PAGESPEED_CSV_PATH }}
           secure: true
+
+      - name: Job summary
+        run: |
+          echo "## PageSpeed Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.csv.outputs.exists }}" = "true" ]; then
+            echo "✅ CSV generated (${{ steps.csv.outputs.lines }} lines)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Artifact:** \`pagespeed-results-${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ No CSV produced" >> $GITHUB_STEP_SUMMARY
+          fi
