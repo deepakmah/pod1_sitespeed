@@ -21,6 +21,8 @@ Runs PageSpeed (web.dev) checks on a list of websites, saves results to CSV, and
 
    **"Failed to queue workflow run":** (1) Ensure **Actions** are enabled: **Settings** → **Actions** → **General** → "Allow all actions". (2) Choose the branch that has the workflow (e.g. **master** or **main**) in the "Run workflow" dropdown. (3) Wait a moment and try again; GitHub can be briefly busy.
 
+   **Run shows "Failure" (red X):** Open the failed run → click the failed job → scroll to the step that failed (often **"Run PageSpeed script"**). The log there shows the error (e.g. build error, or element not found on pagespeed.web.dev). Fix that step or the script and push again.
+
 4. **Get the CSV**
    - **Email:** If secrets are set, the CSV is sent as an attachment to `EMAIL_TO` after each run.
    - **Artifact:** Every run uploads the CSV as an artifact. Open the run → **Artifacts** → download `pagespeed-results-<run_number>`.

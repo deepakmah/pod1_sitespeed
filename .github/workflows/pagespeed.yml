@@ -44,7 +44,7 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
       - name: Build
-        run: mvn -B compile -q
+        run: mvn -B compile
         id: build
     outputs:
       built: ${{ steps.build.outcome == 'success' }}
@@ -55,6 +55,8 @@ jobs:
     needs: build
     timeout-minutes: 50
     steps:
+      - name: Start run
+        run: echo "PageSpeed workflow running... (Build passed)"
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
@@ -67,10 +69,13 @@ jobs:
           chrome-version: stable
       - name: Run PageSpeed script
         id: run
-        run: mvn -B compile exec:java -Dexec.mainClass="Speed.sitepeed" -q
+        run: mvn -B compile exec:java -Dexec.mainClass="Speed.sitepeed"
         env:
           PAGESPEED_CSV_PATH: ${{ env.PAGESPEED_CSV_PATH }}
           CI: ${{ env.CI }}
+      - name: Show failure hint
+        if: failure()
+        run: echo "::error::Step failed. Scroll up to the 'Run PageSpeed script' log for the error (e.g. element not found, timeout)."
       - name: Check CSV
         id: csv
         run: |
