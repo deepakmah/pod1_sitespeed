@@ -1,0 +1,58 @@
+# Page Speed automation: runs on schedule and sends CSV by email
+# Add repo secrets: SMTP_USER, SMTP_PASSWORD, EMAIL_TO (and optionally SMTP_SERVER, SMTP_PORT)
+
+name: PageSpeed Report
+
+on:
+  schedule:
+    # Run every Monday at 6:00 AM UTC (adjust cron as needed)
+    - cron: '0 6 * * 1'
+  workflow_dispatch:  # Allow "Run workflow" from GitHub Actions tab
+
+env:
+  PAGESPEED_CSV_PATH: pagespeed_results.csv
+  CI: true   # Tells the Java app to run Chrome headless
+
+jobs:
+  pagespeed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '24'
+          cache: maven
+
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Build and run PageSpeed automation
+        run: mvn -q compile exec:java -Dexec.mainClass="Speed.sitepeed"
+        timeout-minutes: 45
+
+      - name: Upload CSV artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pagespeed-results
+          path: ${{ env.PAGESPEED_CSV_PATH }}
+
+      - name: Send CSV by email
+        if: success() && secrets.EMAIL_TO != ''
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ vars.SMTP_SERVER || 'smtp.gmail.com' }}
+          server_port: ${{ vars.SMTP_PORT || '587' }}
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "PageSpeed Report - ${{ github.run_id }}"
+          to: ${{ secrets.EMAIL_TO }}
+          from: ${{ secrets.SMTP_USER }}
+          body: "PageSpeed automation completed. CSV attached."
+          attachments: ${{ env.PAGESPEED_CSV_PATH }}
+          secure: true
