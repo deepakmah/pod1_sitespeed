@@ -9,7 +9,7 @@ Runs PageSpeed (web.dev) checks on a list of websites, saves results to CSV, and
 2. **Add repository secrets for Gmail** (Settings → Secrets and variables → Actions → Secrets):
    - `SMTP_USER` – your **Gmail address** (e.g. `you@gmail.com`)
    - `SMTP_PASSWORD` – **Gmail App Password** (not your normal Gmail password). Create one: [Google App Passwords](https://support.google.com/accounts/answer/185833) (Account → Security → 2-Step Verification → App passwords).
-   - `EMAIL_TO` – email address that should receive the CSV (can be the same Gmail or another address)
+   - `EMAIL_TO` – **deepak.maheshwari@exinent.com** (address that receives the CSV report)
 
    The workflow uses **smtp.gmail.com** and port **587** (TLS); no extra variables needed for Gmail.
 

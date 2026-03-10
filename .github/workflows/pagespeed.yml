@@ -5,7 +5,7 @@
 # GMAIL SETUP (Settings → Secrets and variables → Actions → Secrets):
 #   SMTP_USER    = your Gmail address (e.g. you@gmail.com)
 #   SMTP_PASSWORD = Gmail App Password (not your normal password)
-#   EMAIL_TO     = email address to receive the CSV (can be same or different)
+#   EMAIL_TO     = deepak.maheshwari@exinent.com  (recipient for CSV report)
 #
 # Create App Password: Google Account → Security → 2-Step Verification → App passwords
 # https://support.google.com/accounts/answer/185833
@@ -96,19 +96,16 @@ jobs:
         if: success() && steps.csv.outputs.exists == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.SMTP_USER }}
-          password: ${{ secrets.SMTP_PASSWORD }}
+          # Gmail port 587 = STARTTLS (not direct SSL). connection_url forces correct protocol.
+          connection_url: ${{ format('smtp+starttls://{0}:{1}@smtp.gmail.com:587', secrets.SMTP_USER, secrets.SMTP_PASSWORD) }}
           subject: "PageSpeed Report #${{ github.run_number }}"
+          # Set secret EMAIL_TO = deepak.maheshwari@exinent.com to receive the CSV here
           to: ${{ secrets.EMAIL_TO }}
-          # from is required; use SMTP_USER (your Gmail). Set repo secret SMTP_USER if you get "from" error.
           from: ${{ secrets.SMTP_USER || format('PageSpeed <{0}@users.noreply.github.com>', github.actor) }}
           body: |
             PageSpeed automation completed. CSV is attached.
             Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           attachments: ${{ env.PAGESPEED_CSV_PATH }}
-          secure: true
       - name: Summary
         run: |
           echo "## Page Speed Report" >> $GITHUB_STEP_SUMMARY
