@@ -6,16 +6,14 @@ Runs PageSpeed (web.dev) checks on a list of websites, saves results to CSV, and
 
 1. **Push this repo to GitHub** (create a new repo and push, or use an existing one).
 
-2. **Add repository secrets** (Settings → Secrets and variables → Actions):
-   - `SMTP_USER` – your SMTP login (e.g. Gmail address)
-   - `SMTP_PASSWORD` – SMTP password (for Gmail use an [App Password](https://support.google.com/accounts/answer/185833))
-   - `EMAIL_TO` – email address that should receive the CSV
+2. **Add repository secrets for Gmail** (Settings → Secrets and variables → Actions → Secrets):
+   - `SMTP_USER` – your **Gmail address** (e.g. `you@gmail.com`)
+   - `SMTP_PASSWORD` – **Gmail App Password** (not your normal Gmail password). Create one: [Google App Passwords](https://support.google.com/accounts/answer/185833) (Account → Security → 2-Step Verification → App passwords).
+   - `EMAIL_TO` – email address that should receive the CSV (can be the same Gmail or another address)
 
-3. **Optional repository variables** (Settings → Secrets and variables → Actions → Variables):
-   - `SMTP_SERVER` – default `smtp.gmail.com`
-   - `SMTP_PORT` – default `587`
+   The workflow uses **smtp.gmail.com** and port **587** (TLS); no extra variables needed for Gmail.
 
-4. **Schedule and manual run**
+3. **Schedule and manual run**
    - The workflow runs **every Monday at 6:00 AM UTC** (edit `.github/workflows/pagespeed.yml` and the `schedule` cron to change it).
    - **To run manually:** Go to your repo on GitHub → open the **Actions** tab → in the **left sidebar** under "All workflows" click **"Page Speed Report"** (or **"pagespeed"** — the workflow from `.github/workflows/pagespeed.yml`) → on the right click **"Run workflow"** → choose branch **main** → click the green **"Run workflow"** button.
 
@@ -23,7 +21,7 @@ Runs PageSpeed (web.dev) checks on a list of websites, saves results to CSV, and
 
    **"Failed to queue workflow run":** (1) Ensure **Actions** are enabled: **Settings** → **Actions** → **General** → "Allow all actions". (2) Choose the branch that has the workflow (e.g. **master** or **main**) in the "Run workflow" dropdown. (3) Wait a moment and try again; GitHub can be briefly busy.
 
-5. **Get the CSV**
+4. **Get the CSV**
    - **Email:** If secrets are set, the CSV is sent as an attachment to `EMAIL_TO` after each run.
    - **Artifact:** Every run uploads the CSV as an artifact. Open the run → **Artifacts** → download `pagespeed-results-<run_number>`.
 
