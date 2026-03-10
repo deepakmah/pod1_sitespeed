@@ -1,8 +1,9 @@
-# PageSpeed Report – scheduled + manual, emails CSV
+# Page Speed Report – scheduled + manual, emails CSV
+# In GitHub: Actions tab → left sidebar "Page Speed Report" → Run workflow
 # Secrets: SMTP_USER, SMTP_PASSWORD, EMAIL_TO
 # Variables (optional): SMTP_SERVER, SMTP_PORT
 
-name: PageSpeed Report
+name: Page Speed Report
 
 on:
   schedule:
