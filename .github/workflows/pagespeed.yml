@@ -102,7 +102,8 @@ jobs:
           password: ${{ secrets.SMTP_PASSWORD }}
           subject: "PageSpeed Report #${{ github.run_number }}"
           to: ${{ secrets.EMAIL_TO }}
-          from: ${{ secrets.SMTP_USER }}
+          # from is required; use SMTP_USER (your Gmail). Set repo secret SMTP_USER if you get "from" error.
+          from: ${{ secrets.SMTP_USER || format('PageSpeed <{0}@users.noreply.github.com>', github.actor) }}
           body: |
             PageSpeed automation completed. CSV is attached.
             Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
