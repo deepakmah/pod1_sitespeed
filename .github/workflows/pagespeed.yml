@@ -93,7 +93,7 @@ jobs:
           path: ${{ env.PAGESPEED_CSV_PATH }}
           retention-days: 30
       - name: Send CSV via Gmail
-        if: success() && steps.csv.outputs.exists == 'true' && secrets.EMAIL_TO != ''
+        if: success() && steps.csv.outputs.exists == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
