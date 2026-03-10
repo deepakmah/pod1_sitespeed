@@ -19,7 +19,9 @@ Runs PageSpeed (web.dev) checks on a list of websites, saves results to CSV, and
    - The workflow runs **every Monday at 6:00 AM UTC** (edit `.github/workflows/pagespeed.yml` and the `schedule` cron to change it).
    - **To run manually:** Go to your repo on GitHub → open the **Actions** tab → in the **left sidebar** under "All workflows" click **"Page Speed Report"** (or **"pagespeed"** — the workflow from `.github/workflows/pagespeed.yml`) → on the right click **"Run workflow"** → choose branch **main** → click the green **"Run workflow"** button.
 
-   **If you don’t see the workflow in the sidebar:** GitHub only lists workflows that exist on the **default branch**. Set the default branch to **main**: **Settings** → **General** → **Default branch** → switch to **main** → **Save**. Then open the **Actions** tab again; "Page Speed Report" or "pagespeed" should appear in the left sidebar.
+   **If you don’t see the workflow in the sidebar:** GitHub only lists workflows that exist on the **default branch**. Set the default branch to **main** (or **master**): **Settings** → **General** → **Default branch** → **Save**. Then open the **Actions** tab again.
+
+   **"Failed to queue workflow run":** (1) Ensure **Actions** are enabled: **Settings** → **Actions** → **General** → "Allow all actions". (2) Choose the branch that has the workflow (e.g. **master** or **main**) in the "Run workflow" dropdown. (3) Wait a moment and try again; GitHub can be briefly busy.
 
 5. **Get the CSV**
    - **Email:** If secrets are set, the CSV is sent as an attachment to `EMAIL_TO` after each run.

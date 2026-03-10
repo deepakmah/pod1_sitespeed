@@ -5,20 +5,20 @@
 
 name: Page Speed Report
 
+permissions:
+  contents: read
+  actions: read
+
 on:
+  workflow_dispatch:       # Run manually: Actions → Page Speed Report → Run workflow
   schedule:
     - cron: '0 6 * * 1'   # Every Monday 06:00 UTC
-  workflow_dispatch:       # Run manually from Actions tab
   push:
-    branches: [main]
+    branches: [main, master]
     paths:
       - '.github/workflows/pagespeed.yml'
       - 'src/**'
       - 'pom.xml'
-
-concurrency:
-  group: pagespeed
-  cancel-in-progress: true
 
 env:
   PAGESPEED_CSV_PATH: pagespeed_results.csv
