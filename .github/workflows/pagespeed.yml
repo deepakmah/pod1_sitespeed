@@ -95,6 +95,7 @@ jobs:
       # 7. Check CSV was created
       - name: Check CSV exists
         id: csv
+        if: always()
         run: |
           if [ -f "${{ env.PAGESPEED_CSV_PATH }}" ]; then
             echo "exists=true"  >> $GITHUB_OUTPUT
@@ -116,8 +117,11 @@ jobs:
           retention-days: 30
 
       # 9. Send CSV by Gmail
+      # ✅ FIX: Removed "secrets.SMTP_USER != ''" — secret values cannot be used
+      #         in 'if:' conditions in GitHub Actions. It always evaluates to empty
+      #         string and the step was being silently skipped every time.
       - name: Send CSV via Gmail
-        if: steps.csv.outputs.exists == 'true' && secrets.SMTP_USER != ''
+        if: steps.csv.outputs.exists == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           connection_url: ${{ format('smtp+starttls://{0}:{1}@smtp.gmail.com:587', secrets.SMTP_USER, secrets.SMTP_PASSWORD) }}
