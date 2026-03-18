@@ -4,48 +4,41 @@
 #
 # GMAIL SETUP (Settings → Secrets and variables → Actions → Secrets):
 #   SMTP_USER     = your Gmail address (e.g. you@gmail.com)
-#   SMTP_PASSWORD = Gmail App Password (not your normal password)
-#   EMAIL_TO      = deepak.maheshwari@exinent.com  (recipient for CSV report)
-#   IMGBB_API_KEY = your ImgBB API key (move it out of Java source!)
+#   SMTP_PASSWORD = Gmail App Password (16-char, NOT your normal password)
+#   EMAIL_TO      = deepak.maheshwari@exinent.com
+#   IMGBB_API_KEY = your ImgBB API key
 #
 # Create App Password: Google Account → Security → 2-Step Verification → App passwords
 # https://support.google.com/accounts/answer/185833
 
 name: Page Speed Report
 
-# ── Permissions ────────────────────────────────────────────────────────────────
 permissions:
   contents: read
-  actions: write          # needed so workflow_dispatch works properly
+  actions: write
 
-# ── Triggers ───────────────────────────────────────────────────────────────────
 on:
-  workflow_dispatch:       # ✅ Manual trigger from Actions tab — always works
+  workflow_dispatch:
 
   schedule:
-    - cron: '0 6 * * 1'   # Every Monday at 06:00 UTC
+    - cron: '0 6 * * 1'   # Every Monday 06:00 UTC
 
   push:
     branches:
       - main
       - master
-    # ❌ REMOVED the 'paths' filter — it was preventing the workflow from
-    #    triggering unless those exact files were modified in the push.
-    #    Now ANY push to main/master will trigger it.
 
-# ── Global env ────────────────────────────────────────────────────────────────
 env:
   PAGESPEED_CSV_PATH: pagespeed_results.csv
   CI: true
   JAVA_VERSION: '21'
 
-# ── Jobs ──────────────────────────────────────────────────────────────────────
 jobs:
 
   pagespeed:
     name: Run PageSpeed & Send Report
     runs-on: ubuntu-latest
-    timeout-minutes: 60       # 10 sites × ~5 min each = needs room
+    timeout-minutes: 60
 
     steps:
 
@@ -61,20 +54,19 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
 
-      # 3. Chrome  ← single stable step; no separate chromedriver needed
-      #    Selenium 4.x uses Selenium Manager to auto-download the matching driver.
+      # 3. Chrome (Selenium 4.x auto-downloads matching ChromeDriver)
       - name: Set up Chrome (stable)
         uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
 
-      # 4. Confirm Chrome is visible to the runner
+      # 4. Confirm Chrome on PATH
       - name: Verify Chrome installation
         run: |
-          google-chrome --version || chromium-browser --version || echo "Chrome not found on PATH"
+          google-chrome --version || chromium-browser --version || echo "Chrome not found"
           which google-chrome || which chromium-browser || true
 
-      # 5. Build & run
+      # 5. Build & Run
       - name: Build and Run PageSpeed script
         id: run
         run: mvn -B compile exec:java -Dexec.mainClass="Speed.sitepeed"
@@ -82,17 +74,16 @@ jobs:
           PAGESPEED_CSV_PATH: ${{ env.PAGESPEED_CSV_PATH }}
           CI: ${{ env.CI }}
           GITHUB_ACTIONS: "true"
-          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}   # ✅ use secret, not hardcoded
+          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
 
       # 6. Hint on failure
       - name: Show failure hint
         if: failure()
         run: |
           echo "::error::PageSpeed script failed."
-          echo "Check the 'Build and Run PageSpeed script' step above for the actual error."
-          echo "Common causes: Chrome path wrong, pagespeed.web.dev selector changed, timeout."
+          echo "Common causes: Chrome path, pagespeed.web.dev selector changed, timeout."
 
-      # 7. Check CSV was created
+      # 7. Check CSV (always runs, even if script failed)
       - name: Check CSV exists
         id: csv
         if: always()
@@ -100,14 +91,14 @@ jobs:
           if [ -f "${{ env.PAGESPEED_CSV_PATH }}" ]; then
             echo "exists=true"  >> $GITHUB_OUTPUT
             echo "lines=$(wc -l < "${{ env.PAGESPEED_CSV_PATH }}")" >> $GITHUB_OUTPUT
-            echo "CSV found with $(wc -l < "${{ env.PAGESPEED_CSV_PATH }}") lines."
+            echo "CSV found:"
             cat "${{ env.PAGESPEED_CSV_PATH }}"
           else
             echo "exists=false" >> $GITHUB_OUTPUT
             echo "::warning::CSV file was not created."
           fi
 
-      # 8. Upload as artifact (always, even on partial failure)
+      # 8. Upload artifact
       - name: Upload CSV artifact
         if: always() && steps.csv.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
@@ -116,16 +107,19 @@ jobs:
           path: ${{ env.PAGESPEED_CSV_PATH }}
           retention-days: 30
 
-      # 9. Send CSV by Gmail
-      # ✅ FIX: Removed "secrets.SMTP_USER != ''" — secret values cannot be used
-      #         in 'if:' conditions in GitHub Actions. It always evaluates to empty
-      #         string and the step was being silently skipped every time.
+      # 9. Send email
+      # ✅ FIX 1: Using separate server fields — connection_url caused SSL error
+      # ✅ FIX 2: SMTP_USER & SMTP_PASSWORD secrets must be set in repo Settings
       - name: Send CSV via Gmail
         if: steps.csv.outputs.exists == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
-          connection_url: ${{ format('smtp+starttls://{0}:{1}@smtp.gmail.com:587', secrets.SMTP_USER, secrets.SMTP_PASSWORD) }}
-          subject: "PageSpeed Report #${{ github.run_number }} — ${{ github.run_id }}"
+          server_address: smtp.gmail.com
+          server_port: 587
+          secure: false            # false = STARTTLS on port 587 (correct for Gmail)
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "PageSpeed Report #${{ github.run_number }}"
           to: ${{ secrets.EMAIL_TO }}
           from: ${{ secrets.SMTP_USER }}
           body: |
@@ -133,9 +127,9 @@ jobs:
 
             The weekly PageSpeed automation has completed.
 
-            • Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            • Sites checked: 10
-            • CSV rows: ${{ steps.csv.outputs.lines }}
+            • Run:            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            • Sites checked:  10
+            • CSV rows:       ${{ steps.csv.outputs.lines }}
 
             The CSV report is attached.
 
@@ -150,9 +144,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.csv.outputs.exists }}" = "true" ]; then
             echo "✅ CSV generated with **${{ steps.csv.outputs.lines }} lines**." >> $GITHUB_STEP_SUMMARY
-            echo "📧 Email sent to \`${{ secrets.EMAIL_TO }}\` (if secret is set)." >> $GITHUB_STEP_SUMMARY
+            echo "📧 Email dispatched to EMAIL_TO." >> $GITHUB_STEP_SUMMARY
           else
-            echo "❌ No CSV was produced — check the script logs above." >> $GITHUB_STEP_SUMMARY
+            echo "❌ No CSV produced — check script logs." >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "[View full run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
