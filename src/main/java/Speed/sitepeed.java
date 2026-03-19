@@ -18,7 +18,7 @@ import java.util.Date;
 
 public class sitepeed {
 
-    private static final String API_KEY = "46866c7eef7ee62b26a79f32a5d57a08";
+    private static final String API_KEY = "3b23b07a37fbcee41d4984d100162a10";
     private static final String CSV_PATH = System.getenv("PAGESPEED_CSV_PATH") != null
             ? System.getenv("PAGESPEED_CSV_PATH")
             : (System.getProperty("user.home") + (System.getProperty("os.name").toLowerCase().contains("win") ? "\\Documents\\pagespeed_results.csv" : "/pagespeed_results.csv"));
