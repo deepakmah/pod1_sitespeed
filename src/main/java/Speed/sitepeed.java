@@ -16,9 +16,9 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.Date;
 
-public class sitepeed {
+public class second {
 
-    private static final String API_KEY = "19293576c970751befde46ac7089d92e";
+    private static final String API_KEY = "46866c7eef7ee62b26a79f32a5d57a08";
     private static final String CSV_PATH = System.getenv("PAGESPEED_CSV_PATH") != null
             ? System.getenv("PAGESPEED_CSV_PATH")
             : (System.getProperty("user.home") + (System.getProperty("os.name").toLowerCase().contains("win") ? "\\Documents\\pagespeed_results.csv" : "/pagespeed_results.csv"));
@@ -101,14 +101,16 @@ public class sitepeed {
 
             // DESKTOP
             selectTab(wait, "desktop_tab");
-            desktopScore = waitForScore(driver);
+            desktopScore = waitForScore(driver, "desktop_tab");
             scrollToReport(driver, wait);
+            ensureTabActive(driver, wait, "desktop_tab");
             desktopURL = takeSSAndUpload(driver, sanitize(site) + "_desktop");
 
             // MOBILE
             selectTab(wait, "mobile_tab");
-            mobileScore = waitForScore(driver);
+            mobileScore = waitForScore(driver, "mobile_tab");
             scrollToReport(driver, wait);
+            ensureTabActive(driver, wait, "mobile_tab");
             mobileURL = takeSSAndUpload(driver, sanitize(site) + "_mobile");
 
             System.out.println("✔ Completed for: " + site);
@@ -133,24 +135,37 @@ public class sitepeed {
         Thread.sleep(3000);
     }
 
-    private static String waitForScore(WebDriver driver) {
+    private static void ensureTabActive(WebDriver driver, WebDriverWait wait, String tabId) throws Exception {
+        WebElement tab = wait.until(ExpectedConditions.elementToBeClickable(By.id(tabId)));
+        if (!"true".equals(tab.getAttribute("aria-selected"))) {
+            tab.click();
+            Thread.sleep(2000);
+        }
+    }
+
+    private static String waitForScore(WebDriver driver, String tabId) {
         long end = System.currentTimeMillis() + 60000;
 
         while (System.currentTimeMillis() < end) {
             try {
+                WebElement tab = driver.findElement(By.id(tabId));
+                if (!"true".equals(tab.getAttribute("aria-selected"))) {
+                    tab.click();
+                    Thread.sleep(2000);
+                    continue;
+                }
+
                 java.util.List<WebElement> scores =
                         driver.findElements(By.cssSelector(".lh-exp-gauge__percentage"));
 
                 for (WebElement s : scores) {
-                    String txt = s.getText().trim();
-                    if (!txt.isEmpty() && txt.matches("\\d+")) {
-                        return txt;
+                    if (s.isDisplayed()) {
+                        String txt = s.getText().trim();
+                        if (!txt.isEmpty() && txt.matches("\\d+")) {
+                            return txt;
+                        }
                     }
                 }
-
-                ((JavascriptExecutor) driver)
-                        .executeScript("document.querySelector('button#desktop_tab')?.click()");
-
             } catch (Exception ignore) {}
             try { Thread.sleep(700); } catch (Exception ignore) {}
         }
