@@ -16,7 +16,7 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.Date;
 
-public class second {
+public class sitepeed {
 
     private static final String API_KEY = "46866c7eef7ee62b26a79f32a5d57a08";
     private static final String CSV_PATH = System.getenv("PAGESPEED_CSV_PATH") != null
