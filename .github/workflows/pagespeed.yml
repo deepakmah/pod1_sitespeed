@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
 
   schedule:
-     # - cron: '30 4 * * *'   # Every day at 10:00 AM IST (04:30 UTC)
+     - cron: '30 4 * * *'   # Every day at 10:00 AM IST (04:30 UTC)
 
   push:
     branches:
