@@ -44,8 +44,16 @@ public class sitepeed {
     public static void main(String[] args) {
 
         String[] websites = {
-                "https://www.colbrookkitchen.com"
-               
+                "https://www.colbrookkitchen.com",
+                "https://greatcellsolarmaterials.com/",
+                "https://allfasteners.com/",
+                "https://www.shopdap.com/",
+                "https://www.mcfeelys.com/",
+                "https://www.natlallergy.com/",
+                "https://www.achooallergy.com/",
+                "https://www.bandagesplus.com/",
+                "https://oldchevytrucks.com/",
+                "https://nutridyn.com/"
         };
 
         createCsvHeader();
@@ -127,17 +135,17 @@ public class sitepeed {
             // DESKTOP
             selectTab(wait, "desktop_tab");
             desktopScore = waitForScore(driver, "desktop_tab");
+            ensureTabActive(driver, wait, "desktop_tab");
             desktopMetrics = extractCoreWebVitals(driver);
             scrollToReport(driver, wait);
-            ensureTabActive(driver, wait, "desktop_tab");
             desktopURL = takeSSAndUpload(driver, sanitize(site) + "_desktop");
 
             // MOBILE
             selectTab(wait, "mobile_tab");
             mobileScore = waitForScore(driver, "mobile_tab");
+            ensureTabActive(driver, wait, "mobile_tab");
             mobileMetrics = extractCoreWebVitals(driver);
             scrollToReport(driver, wait);
-            ensureTabActive(driver, wait, "mobile_tab");
             mobileURL = takeSSAndUpload(driver, sanitize(site) + "_mobile");
 
             System.out.println("✔ Completed for: " + site);
@@ -172,14 +180,28 @@ public class sitepeed {
     }
 
     private static String extractMetric(WebDriver driver, String metricId) {
-        try {
-            WebElement el = driver.findElement(By.cssSelector("#" + metricId + " .lh-metric__value"));
-            String txt = el.getText().trim();
-            // normalize the non-breaking space Lighthouse uses between number and unit (e.g. "2.6 s")
-            return txt.replace('\u00A0', ' ');
-        } catch (Exception e) {
-            return "N/A";
+        // Poll (like waitForScore does) instead of reading once: the metric value
+        // often isn't populated yet at the exact moment the score gauge appears,
+        // and only a *visible* element's text should be trusted in case a hidden
+        // duplicate (e.g. the other tab's markup) shares the same id.
+        long end = System.currentTimeMillis() + 15000;
+        while (System.currentTimeMillis() < end) {
+            try {
+                java.util.List<WebElement> matches =
+                        driver.findElements(By.cssSelector("#" + metricId + " .lh-metric__value"));
+                for (WebElement el : matches) {
+                    if (el.isDisplayed()) {
+                        String txt = el.getText().trim();
+                        if (!txt.isEmpty()) {
+                            // normalize the non-breaking space Lighthouse uses (e.g. "2.6 s")
+                            return txt.replace('\u00A0', ' ');
+                        }
+                    }
+                }
+            } catch (Exception ignore) {}
+            try { Thread.sleep(500); } catch (Exception ignore) {}
         }
+        return "N/A";
     }
 
     private static void selectTab(WebDriverWait wait, String id) throws Exception {
