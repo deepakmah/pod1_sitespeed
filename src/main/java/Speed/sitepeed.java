@@ -75,18 +75,33 @@ public class sitepeed {
         } catch (Exception e) { e.printStackTrace(); }
     }
 
+    private static String csvEscape(String value) {
+        if (value == null) return "";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
+    }
+
     private static void appendToCsv(String date, String site,
                                      String desktopScore, String[] desktopMetrics, String desktopURL,
                                      String mobileScore, String[] mobileMetrics, String mobileURL) {
         try (PrintWriter writer = new PrintWriter(new FileWriter(CSV_PATH, true))) {
+            java.util.List<String> fields = new java.util.ArrayList<>();
+            fields.add(date);
+            fields.add(site);
+            fields.add(desktopScore);
+            for (String m : desktopMetrics) fields.add(m);
+            fields.add(desktopURL);
+            fields.add(mobileScore);
+            for (String m : mobileMetrics) fields.add(m);
+            fields.add(mobileURL);
+
             StringBuilder row = new StringBuilder();
-            row.append(date).append(",").append(site).append(",")
-               .append(desktopScore).append(",")
-               .append(String.join(",", desktopMetrics)).append(",")
-               .append(desktopURL).append(",")
-               .append(mobileScore).append(",")
-               .append(String.join(",", mobileMetrics)).append(",")
-               .append(mobileURL);
+            for (int i = 0; i < fields.size(); i++) {
+                if (i > 0) row.append(",");
+                row.append(csvEscape(fields.get(i)));
+            }
             writer.println(row);
         } catch (Exception e) { e.printStackTrace(); }
     }
