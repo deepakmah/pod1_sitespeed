@@ -18,9 +18,15 @@ import java.util.Date;
 
 public class sitepeed {
 
-    private static final String API_KEY = System.getenv("IMGBB_API_KEY") != null
-            ? System.getenv("IMGBB_API_KEY")
-            : "46866c7eef7ee62b26a79f32a5d57a08"; // fallback for local runs only
+    private static String resolveApiKey() {
+        String env = System.getenv("IMGBB_API_KEY");
+        if (env != null && !env.trim().isEmpty()) {
+            return env;
+        }
+        return "46866c7eef7ee62b26a79f32a5d57a08"; // fallback for local runs only
+    }
+
+    private static final String API_KEY = resolveApiKey();
 
     private static final String CSV_PATH = System.getenv("PAGESPEED_CSV_PATH") != null
             ? System.getenv("PAGESPEED_CSV_PATH")
@@ -38,16 +44,8 @@ public class sitepeed {
     public static void main(String[] args) {
 
         String[] websites = {
-                "https://www.colbrookkitchen.com",
-                "https://greatcellsolarmaterials.com/",
-                "https://allfasteners.com/",
-                "https://www.shopdap.com/",
-                "https://www.mcfeelys.com/",
-                "https://www.natlallergy.com/",
-                "https://www.achooallergy.com/",
-                "https://www.bandagesplus.com/",
-                "https://oldchevytrucks.com/",
-                "https://nutridyn.com/"
+                "https://www.colbrookkitchen.com"
+               
         };
 
         createCsvHeader();
