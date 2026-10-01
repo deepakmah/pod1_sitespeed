@@ -33,7 +33,7 @@
         <!-- CDP support for Chrome 153+ -->
         <dependency>
             <groupId>org.seleniumhq.selenium</groupId>
-            <artifactId>selenium-devtools-v153</artifactId>
+          <artifactId>selenium-devtools-v136</artifactId>
             <version>${selenium.version}</version>
             <optional>true</optional>
         </dependency>
