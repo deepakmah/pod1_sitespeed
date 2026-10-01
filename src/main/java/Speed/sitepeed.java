@@ -137,7 +137,7 @@ public class sitepeed {
                         "--no-sandbox",
                         "--disable-dev-shm-usage",
                         "--disable-gpu",
-                        "--window-size=1920,1400",
+                        "--window-size=1920,1080",
                         "--hide-scrollbars",
                         "--no-first-run",
                         "--disable-extensions");
@@ -310,21 +310,40 @@ public class sitepeed {
     }
 
     /**
-     * Scrolls the rendered Lighthouse gauge into view. The "Diagnose performance issues"
-     * heading is on screen while that section is still spinning, so it is not a ready signal.
+     * Scrolls the Core Web Vitals block (FCP, LCP, TBT, CLS, Speed Index) into the screenshot.
+     * The category gauges at the top of the report are a different section.
      */
     private static void scrollToReport(WebDriver driver) {
         try {
-            java.util.List<WebElement> gauges =
-                    driver.findElements(By.cssSelector(".lh-exp-gauge__percentage"));
-            for (WebElement gauge : gauges) {
-                if (gauge.isDisplayed() && gauge.getText().trim().matches("\\d+")) {
-                    ((JavascriptExecutor) driver).executeScript(
-                            "arguments[0].scrollIntoView({behavior:'auto',block:'start'})", gauge);
-                    Thread.sleep(1500);
-                    return;
+            WebElement metric = null;
+            for (WebElement el : driver.findElements(By.id("first-contentful-paint"))) {
+                if (el.isDisplayed()) {
+                    metric = el;
+                    break;
                 }
             }
+            if (metric == null) {
+                return;
+            }
+            ((JavascriptExecutor) driver).executeScript(
+                    "var metric = arguments[0];" +
+                    "var group = metric.closest('.lh-audit-group') || metric;" +
+                    "var target = group;" +
+                    "var prev = group.previousElementSibling;" +
+                    "if (prev) {" +
+                    "  var h = prev.getBoundingClientRect().height;" +
+                    "  if (h > 0 && h < 320) target = prev;" +
+                    "}" +
+                    "target.scrollIntoView({behavior:'auto', block:'start'});" +
+                    "var tabs = document.getElementById('desktop_tab') || document.getElementById('mobile_tab');" +
+                    "var sticky = 0;" +
+                    "if (tabs) {" +
+                    "  var bar = tabs.closest('[role=tablist]') || tabs.parentElement;" +
+                    "  if (bar) sticky = Math.max(0, bar.getBoundingClientRect().bottom);" +
+                    "}" +
+                    "window.scrollBy(0, -(sticky + 16));",
+                    metric);
+            Thread.sleep(1200);
         } catch (Exception ignore) {}
     }
 
