@@ -71,10 +71,10 @@ jobs:
           google-chrome --version || true
           which google-chrome || true
 
-      # 5. Build & Run
+      # 5. Build & Run. xvfb gives Chrome a real screen. Headless leaves PageSpeed spinning.
       - name: Build and Run PageSpeed script
         id: run
-        run: mvn -B compile exec:java -Dexec.mainClass="Speed.sitepeed"
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" mvn -B compile exec:java -Dexec.mainClass="Speed.sitepeed"
         env:
           PAGESPEED_CSV_PATH: ${{ env.PAGESPEED_CSV_PATH }}
           CI: ${{ env.CI }}
@@ -104,7 +104,16 @@ jobs:
             echo "::warning::CSV file was not created."
           fi
 
-      # 8. Upload artifact
+      # 8. Upload CSV and, when a report never finished, the debug screenshot
+      - name: Upload debug screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pagespeed-debug-${{ github.run_number }}
+          path: target/pagespeed-debug-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload CSV artifact
         if: always() && steps.csv.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
