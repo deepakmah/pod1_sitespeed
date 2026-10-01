@@ -11,6 +11,7 @@ import java.io.*;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.util.Base64;
@@ -130,22 +131,35 @@ public class sitepeed {
                 options.setBinary(chromeBinary.trim());
                 System.out.println("Using Chrome binary: " + chromeBinary.trim());
             }
-            boolean headless = "true".equalsIgnoreCase(System.getenv("CI")) || "true".equalsIgnoreCase(System.getenv("GITHUB_ACTIONS"));
-            if (headless) {
+            boolean ci = "true".equalsIgnoreCase(System.getenv("CI"))
+                    || "true".equalsIgnoreCase(System.getenv("GITHUB_ACTIONS"));
+            String display = System.getenv("DISPLAY");
+            boolean hasDisplay = display != null && !display.isBlank();
+            // Headless Chrome on GitHub leaves PageSpeed on the spinner. xvfb sets DISPLAY
+            // so this session is a real window on a virtual screen.
+            boolean headless = ci && !hasDisplay;
+            options.setExperimentalOption("excludeSwitches", java.util.List.of("enable-automation"));
+            options.addArguments("--disable-blink-features=AutomationControlled");
+            if (ci) {
                 options.addArguments(
-                        "--headless=new",
                         "--no-sandbox",
                         "--disable-dev-shm-usage",
-                        "--disable-gpu",
                         "--window-size=1920,1080",
                         "--hide-scrollbars",
                         "--no-first-run",
                         "--disable-extensions");
+            }
+            if (headless) {
+                options.addArguments("--headless=new", "--disable-gpu");
+                System.out.println("Chrome mode: headless");
+            } else if (ci) {
+                System.out.println("Chrome mode: headed on display " + display);
             } else {
                 options.addArguments("--start-maximized");
             }
 
             driver = new ChromeDriver(options);
+            driver.manage().window().setSize(new Dimension(1920, 1080));
             wait = new WebDriverWait(driver, Duration.ofSeconds(90));
             if (driver instanceof ChromeDriver) {
                 Capabilities caps = ((ChromeDriver) driver).getCapabilities();
@@ -174,6 +188,7 @@ public class sitepeed {
             System.out.println("Desktop score: " + desktopScore);
             if ("N/A".equals(desktopScore)) {
                 System.out.println("Desktop report still loading after " + (SCORE_WAIT_MS / 1000) + "s — not uploading a screenshot");
+                saveDebugScreenshot(driver, sanitize(site) + "_desktop");
             } else {
                 ensureTabActive(driver, wait, "desktop_tab");
                 desktopMetrics = extractCoreWebVitals(driver);
@@ -187,6 +202,7 @@ public class sitepeed {
             System.out.println("Mobile score: " + mobileScore);
             if ("N/A".equals(mobileScore)) {
                 System.out.println("Mobile report still loading after " + (SCORE_WAIT_MS / 1000) + "s — not uploading a screenshot");
+                saveDebugScreenshot(driver, sanitize(site) + "_mobile");
             } else {
                 ensureTabActive(driver, wait, "mobile_tab");
                 mobileMetrics = extractCoreWebVitals(driver);
@@ -194,7 +210,11 @@ public class sitepeed {
                 mobileURL = takeSSAndUpload(driver, sanitize(site) + "_mobile");
             }
 
-            System.out.println("✔ Completed for: " + site);
+            if ("N/A".equals(desktopScore) || "N/A".equals(mobileScore)) {
+                System.out.println("⚠ Incomplete for: " + site);
+            } else {
+                System.out.println("✔ Completed for: " + site);
+            }
 
         } catch (Exception e) {
             System.out.println("⚠ FAILED: " + site + " | " + e.getMessage());
@@ -280,33 +300,121 @@ public class sitepeed {
         } catch (Exception ignore) {}
     }
 
+    /**
+     * Report is ready when a performance score and First Contentful Paint are both in the DOM.
+     * Selenium's isDisplayed()/getText() miss the gauge when it sits in a shadow root or iframe,
+     * which is why a finished report was reported as N/A.
+     */
+    private static final String READ_REPORT_JS = """
+            function norm(s) { return (s || '').replace(String.fromCharCode(160), ' ').trim(); }
+            function shown(el) {
+              if (!el || !el.getClientRects || !el.getClientRects().length) return false;
+              var view = el.ownerDocument && el.ownerDocument.defaultView;
+              if (!view) return true;
+              var s = view.getComputedStyle(el);
+              return s.display !== 'none' && s.visibility !== 'hidden';
+            }
+            function digits(el) {
+              var t = norm(el.innerText || el.textContent);
+              if (/^\\d{1,3}$/.test(t)) return t;
+              var aria = norm(el.getAttribute && el.getAttribute('aria-label'));
+              var m = aria.match(/(\\d{1,3})/);
+              return m ? m[1] : '';
+            }
+            var acc = {score: '', fcp: ''};
+            function scan(root) {
+              if (!root || !root.querySelectorAll) return;
+              if (!acc.score) {
+                var perf = root.querySelectorAll('#performance .lh-exp-gauge__percentage, #performance .lh-gauge__percentage');
+                for (var p = 0; p < perf.length; p++) {
+                  if (!shown(perf[p])) continue;
+                  var n = digits(perf[p]);
+                  if (n) { acc.score = n; break; }
+                }
+              }
+              if (!acc.fcp) {
+                var metrics = root.querySelectorAll('#first-contentful-paint .lh-metric__value');
+                for (var k = 0; k < metrics.length; k++) {
+                  if (!shown(metrics[k])) continue;
+                  var mt = norm(metrics[k].innerText || metrics[k].textContent);
+                  if (mt) { acc.fcp = mt; break; }
+                }
+              }
+              var nodes = root.querySelectorAll('*');
+              for (var j = 0; j < nodes.length; j++) {
+                if (nodes[j].shadowRoot) scan(nodes[j].shadowRoot);
+              }
+              var frames = root.querySelectorAll('iframe');
+              for (var f = 0; f < frames.length; f++) {
+                try { if (frames[f].contentDocument) scan(frames[f].contentDocument); } catch (e) {}
+              }
+            }
+            scan(document);
+            return JSON.stringify(acc);
+            """;
+
+    private static String jsonField(String json, String field) {
+        String key = "\"" + field + "\":\"";
+        int start = json.indexOf(key);
+        if (start < 0) return "";
+        start += key.length();
+        int end = json.indexOf('"', start);
+        if (end < 0) return "";
+        return json.substring(start, end);
+    }
+
     private static String waitForScore(WebDriver driver, String tabId) {
         long end = System.currentTimeMillis() + SCORE_WAIT_MS;
+        long nextLog = System.currentTimeMillis() + 20000;
+        boolean nudgedTab = false;
 
         while (System.currentTimeMillis() < end) {
             try {
                 WebElement tab = driver.findElement(By.id(tabId));
-                if (!"true".equals(tab.getAttribute("aria-selected"))) {
+                if (!nudgedTab && !"true".equals(tab.getAttribute("aria-selected"))) {
                     tab.click();
-                    Thread.sleep(2000);
+                    nudgedTab = true;
+                    Thread.sleep(1500);
                     continue;
                 }
 
-                java.util.List<WebElement> scores =
-                        driver.findElements(By.cssSelector(".lh-exp-gauge__percentage"));
-
-                for (WebElement s : scores) {
-                    if (s.isDisplayed()) {
-                        String txt = s.getText().trim();
-                        if (!txt.isEmpty() && txt.matches("\\d+")) {
-                            return txt;
-                        }
-                    }
+                Object raw = ((JavascriptExecutor) driver).executeScript(READ_REPORT_JS);
+                String json = raw == null ? "" : raw.toString();
+                String score = jsonField(json, "score");
+                String fcp = jsonField(json, "fcp");
+                if (score.matches("\\d{1,3}") && !fcp.isEmpty()) {
+                    System.out.println(tabId + " ready. FCP=" + fcp);
+                    return score;
+                }
+                if (System.currentTimeMillis() >= nextLog) {
+                    System.out.println("Waiting for " + tabId + " metrics... score="
+                            + (score.isEmpty() ? "none" : score)
+                            + " fcp=" + (fcp.isEmpty() ? "none" : fcp)
+                            + " url=" + driver.getCurrentUrl());
+                    nextLog = System.currentTimeMillis() + 20000;
                 }
             } catch (Exception ignore) {}
             try { Thread.sleep(700); } catch (Exception ignore) {}
         }
+        try {
+            System.out.println("Timed out on " + tabId + ". Page title: " + driver.getTitle());
+            Object text = ((JavascriptExecutor) driver).executeScript(
+                    "return (document.body && document.body.innerText || '').replace(/\\s+/g, ' ').slice(0, 400);");
+            System.out.println("Page text: " + text);
+        } catch (Exception ignore) {}
         return "N/A";
+    }
+
+    private static void saveDebugScreenshot(WebDriver driver, String name) {
+        try {
+            byte[] png = ((TakesScreenshot) driver).getScreenshotAs(OutputType.BYTES);
+            Path dest = Path.of("target", "pagespeed-debug-" + name + ".png");
+            Files.createDirectories(dest.getParent());
+            Files.write(dest, png);
+            System.out.println("Saved debug screenshot: " + dest);
+        } catch (Exception e) {
+            System.out.println("Debug screenshot failed: " + e.getMessage());
+        }
     }
 
     /**
@@ -349,10 +457,14 @@ public class sitepeed {
 
     private static String takeSSAndUpload(WebDriver driver, String filename) {
         try {
-            File scr = ((TakesScreenshot) driver).getScreenshotAs(OutputType.FILE);
-            byte[] data = Files.readAllBytes(scr.toPath());
+            byte[] data = ((TakesScreenshot) driver).getScreenshotAs(OutputType.BYTES);
+            Path dest = Path.of("target", filename + ".png");
+            Files.createDirectories(dest.getParent());
+            Files.write(dest, data);
+            System.out.println("Saved screenshot: " + dest.toAbsolutePath());
             return upload(data, filename);
         } catch (Exception e) {
+            System.out.println("Screenshot failed: " + e.getMessage());
             return "FAILED";
         }
     }
@@ -372,9 +484,15 @@ public class sitepeed {
 
             conn.getOutputStream().write(data.getBytes());
 
-            BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+            int code = conn.getResponseCode();
+            InputStream stream = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            BufferedReader br = new BufferedReader(new InputStreamReader(stream));
             String res = br.readLine();
             br.close();
+            if (code >= 400 || res == null) {
+                System.out.println("Upload failed: HTTP " + code + " " + res);
+                return "FAILED";
+            }
 
             int start = res.indexOf("\"url\":\"") + 7;
             int end = res.indexOf("\"", start);
