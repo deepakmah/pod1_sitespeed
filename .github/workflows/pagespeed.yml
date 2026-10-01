@@ -38,7 +38,7 @@ jobs:
   pagespeed:
     name: Run PageSpeed & Send Report
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
 
@@ -54,17 +54,22 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
 
-      # 3. Chrome (Selenium 4.x auto-downloads matching ChromeDriver)
+      # 3. Chrome. ubuntu-latest also has its own google-chrome on PATH, which
+      #    can be a different build. The script drives THIS binary via CHROME_BINARY.
       - name: Set up Chrome (stable)
+        id: chrome
         uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
 
-      # 4. Confirm Chrome on PATH
+      # 4. Confirm the binary Selenium will actually launch
       - name: Verify Chrome installation
         run: |
-          google-chrome --version || chromium-browser --version || echo "Chrome not found"
-          which google-chrome || which chromium-browser || true
+          echo "CHROME_BINARY=${{ steps.chrome.outputs.chrome-path }}"
+          "${{ steps.chrome.outputs.chrome-path }}" --version
+          echo "PATH google-chrome (not used when CHROME_BINARY is set):"
+          google-chrome --version || true
+          which google-chrome || true
 
       # 5. Build & Run
       - name: Build and Run PageSpeed script
@@ -75,6 +80,7 @@ jobs:
           CI: ${{ env.CI }}
           GITHUB_ACTIONS: "true"
           IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
 
       # 6. Hint on failure
       - name: Show failure hint
