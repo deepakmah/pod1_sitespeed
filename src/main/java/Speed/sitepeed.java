@@ -8,7 +8,7 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 
 import javax.net.ssl.HttpsURLConnection;
 import java.io.*;
-import java.net.URL;
+import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.file.Files;
 import java.text.SimpleDateFormat;
@@ -31,6 +31,9 @@ public class sitepeed {
     private static final String CSV_PATH = System.getenv("PAGESPEED_CSV_PATH") != null
             ? System.getenv("PAGESPEED_CSV_PATH")
             : (System.getProperty("user.home") + (System.getProperty("os.name").toLowerCase().contains("win") ? "\\Documents\\pagespeed_results.csv" : "/pagespeed_results.csv"));
+
+    // Lab data on pagespeed.web.dev often takes longer than a minute in CI.
+    private static final long SCORE_WAIT_MS = 150_000;
 
     // Core Web Vital metric ids as they appear in the Lighthouse report DOM
     private static final String[] METRIC_IDS = {
@@ -122,18 +125,36 @@ public class sitepeed {
             System.out.println("\nRunning PageSpeed for: " + site);
 
             ChromeOptions options = new ChromeOptions();
+            String chromeBinary = System.getenv("CHROME_BINARY");
+            if (chromeBinary != null && !chromeBinary.trim().isEmpty()) {
+                options.setBinary(chromeBinary.trim());
+                System.out.println("Using Chrome binary: " + chromeBinary.trim());
+            }
             boolean headless = "true".equalsIgnoreCase(System.getenv("CI")) || "true".equalsIgnoreCase(System.getenv("GITHUB_ACTIONS"));
             if (headless) {
-                options.addArguments("--headless=new", "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--window-size=1920,1080");
+                options.addArguments(
+                        "--headless=new",
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                        "--window-size=1920,1400",
+                        "--hide-scrollbars",
+                        "--no-first-run",
+                        "--disable-extensions");
             } else {
                 options.addArguments("--start-maximized");
             }
 
             driver = new ChromeDriver(options);
             wait = new WebDriverWait(driver, Duration.ofSeconds(90));
+            if (driver instanceof ChromeDriver) {
+                Capabilities caps = ((ChromeDriver) driver).getCapabilities();
+                System.out.println("Launched " + caps.getBrowserName() + " " + caps.getBrowserVersion());
+            }
 
             driver.get("https://pagespeed.web.dev/");
             Thread.sleep(2000);
+            dismissCookieBanner(driver);
 
             WebElement input = wait.until(ExpectedConditions.visibilityOfElementLocated(
                     By.xpath("//input[@id='i2']")));
@@ -150,18 +171,28 @@ public class sitepeed {
             // DESKTOP
             selectTab(wait, "desktop_tab");
             desktopScore = waitForScore(driver, "desktop_tab");
-            ensureTabActive(driver, wait, "desktop_tab");
-            desktopMetrics = extractCoreWebVitals(driver);
-            scrollToReport(driver, wait);
-            desktopURL = takeSSAndUpload(driver, sanitize(site) + "_desktop");
+            System.out.println("Desktop score: " + desktopScore);
+            if ("N/A".equals(desktopScore)) {
+                System.out.println("Desktop report still loading after " + (SCORE_WAIT_MS / 1000) + "s — not uploading a screenshot");
+            } else {
+                ensureTabActive(driver, wait, "desktop_tab");
+                desktopMetrics = extractCoreWebVitals(driver);
+                scrollToReport(driver);
+                desktopURL = takeSSAndUpload(driver, sanitize(site) + "_desktop");
+            }
 
             // MOBILE
             selectTab(wait, "mobile_tab");
             mobileScore = waitForScore(driver, "mobile_tab");
-            ensureTabActive(driver, wait, "mobile_tab");
-            mobileMetrics = extractCoreWebVitals(driver);
-            scrollToReport(driver, wait);
-            mobileURL = takeSSAndUpload(driver, sanitize(site) + "_mobile");
+            System.out.println("Mobile score: " + mobileScore);
+            if ("N/A".equals(mobileScore)) {
+                System.out.println("Mobile report still loading after " + (SCORE_WAIT_MS / 1000) + "s — not uploading a screenshot");
+            } else {
+                ensureTabActive(driver, wait, "mobile_tab");
+                mobileMetrics = extractCoreWebVitals(driver);
+                scrollToReport(driver);
+                mobileURL = takeSSAndUpload(driver, sanitize(site) + "_mobile");
+            }
 
             System.out.println("✔ Completed for: " + site);
 
@@ -235,8 +266,22 @@ public class sitepeed {
         }
     }
 
+    private static void dismissCookieBanner(WebDriver driver) {
+        try {
+            java.util.List<WebElement> buttons = driver.findElements(By.xpath(
+                    "//*[self::button or self::a][contains(normalize-space(),'Ok, Got it') or contains(normalize-space(),'Got it')]"));
+            for (WebElement button : buttons) {
+                if (button.isDisplayed()) {
+                    button.click();
+                    Thread.sleep(400);
+                    return;
+                }
+            }
+        } catch (Exception ignore) {}
+    }
+
     private static String waitForScore(WebDriver driver, String tabId) {
-        long end = System.currentTimeMillis() + 60000;
+        long end = System.currentTimeMillis() + SCORE_WAIT_MS;
 
         while (System.currentTimeMillis() < end) {
             try {
@@ -264,13 +309,22 @@ public class sitepeed {
         return "N/A";
     }
 
-    private static void scrollToReport(WebDriver driver, WebDriverWait wait) {
+    /**
+     * Scrolls the rendered Lighthouse gauge into view. The "Diagnose performance issues"
+     * heading is on screen while that section is still spinning, so it is not a ready signal.
+     */
+    private static void scrollToReport(WebDriver driver) {
         try {
-            WebElement ele = wait.until(ExpectedConditions.visibilityOfElementLocated(
-                    By.xpath("(//div[normalize-space()='Diagnose performance issues'])[last()]")));
-            ((JavascriptExecutor) driver).executeScript(
-                    "arguments[0].scrollIntoView({behavior:'auto',block:'center'})", ele);
-            Thread.sleep(1500);
+            java.util.List<WebElement> gauges =
+                    driver.findElements(By.cssSelector(".lh-exp-gauge__percentage"));
+            for (WebElement gauge : gauges) {
+                if (gauge.isDisplayed() && gauge.getText().trim().matches("\\d+")) {
+                    ((JavascriptExecutor) driver).executeScript(
+                            "arguments[0].scrollIntoView({behavior:'auto',block:'start'})", gauge);
+                    Thread.sleep(1500);
+                    return;
+                }
+            }
         } catch (Exception ignore) {}
     }
 
@@ -289,7 +343,7 @@ public class sitepeed {
             String base64 = Base64.getEncoder().encodeToString(img);
             String url = "https://api.imgbb.com/1/upload?key=" + API_KEY;
 
-            HttpsURLConnection conn = (HttpsURLConnection) new URL(url).openConnection();
+            HttpsURLConnection conn = (HttpsURLConnection) URI.create(url).toURL().openConnection();
             conn.setRequestMethod("POST");
             conn.setDoOutput(true);
             conn.setRequestProperty("Content-Type","application/x-www-form-urlencoded");
