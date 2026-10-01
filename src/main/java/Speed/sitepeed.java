@@ -18,10 +18,28 @@ import java.util.Date;
 
 public class sitepeed {
 
-    private static final String API_KEY = "46866c7eef7ee62b26a79f32a5d57a08";
+    private static String resolveApiKey() {
+        String env = System.getenv("IMGBB_API_KEY");
+        if (env != null && !env.trim().isEmpty()) {
+            return env;
+        }
+        return "46866c7eef7ee62b26a79f32a5d57a08"; // fallback for local runs only
+    }
+
+    private static final String API_KEY = resolveApiKey();
+
     private static final String CSV_PATH = System.getenv("PAGESPEED_CSV_PATH") != null
             ? System.getenv("PAGESPEED_CSV_PATH")
             : (System.getProperty("user.home") + (System.getProperty("os.name").toLowerCase().contains("win") ? "\\Documents\\pagespeed_results.csv" : "/pagespeed_results.csv"));
+
+    // Core Web Vital metric ids as they appear in the Lighthouse report DOM
+    private static final String[] METRIC_IDS = {
+            "first-contentful-paint",
+            "largest-contentful-paint",
+            "total-blocking-time",
+            "cumulative-layout-shift",
+            "speed-index"
+    };
 
     public static void main(String[] args) {
 
@@ -49,14 +67,42 @@ public class sitepeed {
 
     private static void createCsvHeader() {
         try (PrintWriter writer = new PrintWriter(new FileWriter(CSV_PATH, false))) {
-            writer.println("Date,Website,Desktop Score,Mobile Score,Desktop Screenshot URL,Mobile Screenshot URL");
+            writer.println(
+                    "Date,Website," +
+                    "Desktop Score,Desktop FCP,Desktop LCP,Desktop TBT,Desktop CLS,Desktop Speed Index,Desktop Screenshot URL," +
+                    "Mobile Score,Mobile FCP,Mobile LCP,Mobile TBT,Mobile CLS,Mobile Speed Index,Mobile Screenshot URL"
+            );
         } catch (Exception e) { e.printStackTrace(); }
     }
 
-    private static void appendToCsv(String date, String site, String desktopScore, String mobileScore,
-                                    String desktopURL, String mobileURL) {
+    private static String csvEscape(String value) {
+        if (value == null) return "";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
+    }
+
+    private static void appendToCsv(String date, String site,
+                                     String desktopScore, String[] desktopMetrics, String desktopURL,
+                                     String mobileScore, String[] mobileMetrics, String mobileURL) {
         try (PrintWriter writer = new PrintWriter(new FileWriter(CSV_PATH, true))) {
-            writer.println(date + "," + site + "," + desktopScore + "," + mobileScore + "," + desktopURL + "," + mobileURL);
+            java.util.List<String> fields = new java.util.ArrayList<>();
+            fields.add(date);
+            fields.add(site);
+            fields.add(desktopScore);
+            for (String m : desktopMetrics) fields.add(m);
+            fields.add(desktopURL);
+            fields.add(mobileScore);
+            for (String m : mobileMetrics) fields.add(m);
+            fields.add(mobileURL);
+
+            StringBuilder row = new StringBuilder();
+            for (int i = 0; i < fields.size(); i++) {
+                if (i > 0) row.append(",");
+                row.append(csvEscape(fields.get(i)));
+            }
+            writer.println(row);
         } catch (Exception e) { e.printStackTrace(); }
     }
 
@@ -69,6 +115,8 @@ public class sitepeed {
         String mobileURL = "FAILED";
         String desktopScore = "N/A";
         String mobileScore = "N/A";
+        String[] desktopMetrics = emptyMetrics();
+        String[] mobileMetrics = emptyMetrics();
 
         try {
             System.out.println("\nRunning PageSpeed for: " + site);
@@ -102,15 +150,17 @@ public class sitepeed {
             // DESKTOP
             selectTab(wait, "desktop_tab");
             desktopScore = waitForScore(driver, "desktop_tab");
-            scrollToReport(driver, wait);
             ensureTabActive(driver, wait, "desktop_tab");
+            desktopMetrics = extractCoreWebVitals(driver);
+            scrollToReport(driver, wait);
             desktopURL = takeSSAndUpload(driver, sanitize(site) + "_desktop");
 
             // MOBILE
             selectTab(wait, "mobile_tab");
             mobileScore = waitForScore(driver, "mobile_tab");
-            scrollToReport(driver, wait);
             ensureTabActive(driver, wait, "mobile_tab");
+            mobileMetrics = extractCoreWebVitals(driver);
+            scrollToReport(driver, wait);
             mobileURL = takeSSAndUpload(driver, sanitize(site) + "_mobile");
 
             System.out.println("✔ Completed for: " + site);
@@ -121,10 +171,52 @@ public class sitepeed {
         finally {
             String today = new SimpleDateFormat("yyyy-MM-dd").format(new Date());
 
-            appendToCsv(today, site, desktopScore, mobileScore, desktopURL, mobileURL);
+            appendToCsv(today, site, desktopScore, desktopMetrics, desktopURL, mobileScore, mobileMetrics, mobileURL);
 
             if (driver != null) driver.quit();
         }
+    }
+
+    private static String[] emptyMetrics() {
+        return new String[]{"N/A", "N/A", "N/A", "N/A", "N/A"};
+    }
+
+    /**
+     * Reads the 5 Core Web Vital values (FCP, LCP, TBT, CLS, Speed Index) from the
+     * currently active Lighthouse report tab. Returns "N/A" for any metric not found,
+     * so a DOM/markup change on one metric never blows up the whole row.
+     */
+    private static String[] extractCoreWebVitals(WebDriver driver) {
+        String[] values = new String[METRIC_IDS.length];
+        for (int i = 0; i < METRIC_IDS.length; i++) {
+            values[i] = extractMetric(driver, METRIC_IDS[i]);
+        }
+        return values;
+    }
+
+    private static String extractMetric(WebDriver driver, String metricId) {
+        // Poll (like waitForScore does) instead of reading once: the metric value
+        // often isn't populated yet at the exact moment the score gauge appears,
+        // and only a *visible* element's text should be trusted in case a hidden
+        // duplicate (e.g. the other tab's markup) shares the same id.
+        long end = System.currentTimeMillis() + 15000;
+        while (System.currentTimeMillis() < end) {
+            try {
+                java.util.List<WebElement> matches =
+                        driver.findElements(By.cssSelector("#" + metricId + " .lh-metric__value"));
+                for (WebElement el : matches) {
+                    if (el.isDisplayed()) {
+                        String txt = el.getText().trim();
+                        if (!txt.isEmpty()) {
+                            // normalize the non-breaking space Lighthouse uses (e.g. "2.6 s")
+                            return txt.replace('\u00A0', ' ');
+                        }
+                    }
+                }
+            } catch (Exception ignore) {}
+            try { Thread.sleep(500); } catch (Exception ignore) {}
+        }
+        return "N/A";
     }
 
     private static void selectTab(WebDriverWait wait, String id) throws Exception {
