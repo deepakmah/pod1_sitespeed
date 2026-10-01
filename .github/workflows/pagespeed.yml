@@ -79,7 +79,6 @@ jobs:
           PAGESPEED_CSV_PATH: ${{ env.PAGESPEED_CSV_PATH }}
           CI: ${{ env.CI }}
           GITHUB_ACTIONS: "true"
-          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
 
       # 6. Hint on failure
@@ -122,16 +121,58 @@ jobs:
           path: ${{ env.PAGESPEED_CSV_PATH }}
           retention-days: 30
 
-      # 9. Send email
-      # ✅ FIX 1: Using separate server fields — connection_url caused SSL error
-      # ✅ FIX 2: SMTP_USER & SMTP_PASSWORD secrets must be set in repo Settings
-      - name: Send CSV via Gmail
-        if: steps.csv.outputs.exists == 'true'
+      - name: Zip screenshots
+        id: shots
+        if: always()
+        run: |
+          shopt -s nullglob
+          files=(target/*.png)
+          if [ ${#files[@]} -gt 0 ]; then
+            zip -j pagespeed-screenshots.zip "${files[@]}"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Zipped ${#files[@]} screenshots"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 9. Send email. Screenshots are attached because ImgBB's upload API
+      #    can reject a valid key with "down for maintenance", which leaves the CSV URL as FAILED.
+      - name: Send CSV and screenshots via Gmail
+        if: steps.csv.outputs.exists == 'true' && steps.shots.outputs.exists == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 587
-          secure: false            # false = STARTTLS on port 587 (correct for Gmail)
+          secure: false
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "PageSpeed Report #${{ github.run_number }}"
+          to: ${{ secrets.EMAIL_TO }}
+          from: ${{ secrets.SMTP_USER }}
+          body: |
+            Hi,
+
+            The weekly PageSpeed automation has completed.
+
+            • Run:            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            • Sites checked:  10
+            • CSV rows:       ${{ steps.csv.outputs.lines }}
+
+            The CSV report is attached. Screenshot images are in pagespeed-screenshots.zip.
+            ImgBB links are filled in the CSV when https://api.imgbb.com/1/upload accepts the image.
+
+            — GitHub Actions
+          attachments: |
+            ${{ env.PAGESPEED_CSV_PATH }}
+            pagespeed-screenshots.zip
+
+      - name: Send CSV via Gmail
+        if: steps.csv.outputs.exists == 'true' && steps.shots.outputs.exists != 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          secure: false
           username: ${{ secrets.SMTP_USER }}
           password: ${{ secrets.SMTP_PASSWORD }}
           subject: "PageSpeed Report #${{ github.run_number }}"

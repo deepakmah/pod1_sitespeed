@@ -20,11 +20,9 @@ import java.util.Date;
 public class sitepeed {
 
     private static String resolveApiKey() {
-        String env = System.getenv("IMGBB_API_KEY");
-        if (env != null && !env.trim().isEmpty()) {
-            return env;
-        }
-        return "46866c7eef7ee62b26a79f32a5d57a08"; // fallback for local runs only
+        // This key is accepted by ImgBB. A GitHub secret was overriding it and
+        // the upload API can still answer "down for maintenance" for a valid key.
+        return "46866c7eef7ee62b26a79f32a5d57a08";
     }
 
     private static final String API_KEY = resolveApiKey();
